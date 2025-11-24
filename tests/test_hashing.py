@@ -5,7 +5,7 @@ import tempfile
 import os
 from pathlib import Path
 
-from backup_assistant.utils.hashing import hash_file, hash_string
+from utils.hashing import hash_file, hash_string
 
 
 def test_hash_string():

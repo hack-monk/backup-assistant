@@ -6,10 +6,10 @@ import os
 import shutil
 from pathlib import Path
 
-from backup_assistant.backup_engine.scanner import FileScanner
-from backup_assistant.backup_engine.copier import FileCopier
-from backup_assistant.db.db_manager import DBManager
-from backup_assistant.utils.logger import BackupLogger
+from backup_engine.scanner import FileScanner
+from backup_engine.copier import FileCopier
+from db.db_manager import DBManager
+from utils.logger import BackupLogger
 
 
 @pytest.fixture

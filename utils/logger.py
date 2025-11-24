@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
-from .config import LOG_DIR, PLATFORM_NAME, PLATFORM_VERSION
+from utils import config
 
 
 class BackupLogger:
@@ -22,7 +22,7 @@ class BackupLogger:
         """
         self.log_entries: List[str] = []
         self.log_to_file = log_to_file
-        self.log_file = log_file or (LOG_DIR / f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+        self.log_file = log_file or (config.LOG_DIR / f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
         
         # Setup Python logging
         self.logger = logging.getLogger('BackupAssistant')
@@ -36,7 +36,7 @@ class BackupLogger:
         self.logger.addHandler(console_handler)
         
         # Log platform info on initialization
-        self.info(f"Backup Assistant initialized on {PLATFORM_NAME} {PLATFORM_VERSION}")
+        self.info(f"Backup Assistant initialized on {config.PLATFORM_NAME} {config.PLATFORM_VERSION}")
         
         # File handler (if enabled)
         if self.log_to_file:

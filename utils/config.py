@@ -11,8 +11,8 @@ IS_MACOS = sys.platform == 'darwin'
 IS_LINUX = sys.platform.startswith('linux')
 IS_UNIX = IS_MACOS or IS_LINUX or sys.platform.startswith('unix')
 
-# Base directory for the application
-BASE_DIR = Path(__file__).parent.parent.parent
+# Base directory for the application (now at root level)
+BASE_DIR = Path(__file__).parent.parent
 
 # Data directory for storing database and logs
 # Use platform-appropriate location

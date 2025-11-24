@@ -21,7 +21,7 @@ setup(
     python_requires=">=3.7",
     entry_points={
         "console_scripts": [
-            "backup-assistant=backup_assistant.app:main",
+            "backup-assistant=app:main",
         ],
     },
     classifiers=[

@@ -8,10 +8,10 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QTextEdit, QFileDialog, QMessageBox)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 
-from ..backup_engine.scanner import FileScanner
-from ..backup_engine.copier import FileCopier
-from ..db.db_manager import DBManager
-from ..utils.logger import BackupLogger
+from backup_engine.scanner import FileScanner
+from backup_engine.copier import FileCopier
+from db.db_manager import DBManager
+from utils.logger import BackupLogger
 
 
 class BackupWorker(QThread):

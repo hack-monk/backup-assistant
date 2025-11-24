@@ -6,9 +6,9 @@ import stat
 from pathlib import Path
 from typing import List, Dict, Optional, Callable
 
-from ..db.db_manager import DBManager
-from ..utils.logger import BackupLogger
-from ..utils.config import IS_WINDOWS
+from db.db_manager import DBManager
+from utils.logger import BackupLogger
+from utils.config import IS_WINDOWS
 
 
 class FileCopier:

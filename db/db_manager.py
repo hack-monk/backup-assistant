@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, List
 
-from ..utils.config import DB_PATH
+from utils.config import DB_PATH
 
 
 class DBManager:

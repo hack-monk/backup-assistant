@@ -6,8 +6,8 @@ import sys
 from pathlib import Path
 from typing import List, Dict, Optional, Callable
 
-from ..utils.hashing import hash_file
-from ..utils.config import EXCLUDE_PATTERNS, INCLUDE_PATTERNS, MAX_FILE_SIZE, MIN_FILE_SIZE, IS_WINDOWS
+from utils.hashing import hash_file
+from utils.config import EXCLUDE_PATTERNS, INCLUDE_PATTERNS, MAX_FILE_SIZE, MIN_FILE_SIZE, IS_WINDOWS
 
 
 class FileScanner:

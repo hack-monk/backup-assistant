@@ -4,8 +4,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional
 
-from ..db.db_manager import DBManager
-from ..utils.logger import BackupLogger
+from db.db_manager import DBManager
+from utils.logger import BackupLogger
 
 
 class SnapshotManager:

@@ -6,7 +6,7 @@ import platform
 from pathlib import Path
 from typing import Optional
 
-from .config import IS_WINDOWS, IS_MACOS, IS_LINUX
+from utils.config import IS_WINDOWS, IS_MACOS, IS_LINUX
 
 
 def normalize_path(path: str) -> Path:

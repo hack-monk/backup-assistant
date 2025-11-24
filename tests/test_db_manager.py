@@ -5,7 +5,7 @@ import tempfile
 import os
 from pathlib import Path
 
-from backup_assistant.db.db_manager import DBManager
+from db.db_manager import DBManager
 
 
 @pytest.fixture
