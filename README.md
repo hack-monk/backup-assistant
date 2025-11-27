@@ -1,4 +1,4 @@
-# Backup Assistant
+# SmartSync - Backup Assistant
 
 A cross-platform GUI-based Backup Assistant that helps users automatically copy only new or modified files to an external hard disk. It works like a Git-style deduplication and versioned backup tool. Works on **Windows, macOS, and Linux**.
 
