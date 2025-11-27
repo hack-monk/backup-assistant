@@ -5,11 +5,12 @@ from pathlib import Path
 from typing import Optional
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QPushButton, QLineEdit, QLabel, QProgressBar,
-                             QTextEdit, QFileDialog, QMessageBox)
+                             QTextEdit, QFileDialog, QMessageBox, QCheckBox)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 
 from backup_engine.scanner import FileScanner
 from backup_engine.copier import FileCopier
+from backup_engine.destination_scanner import DestinationScanner
 from db.db_manager import DBManager
 from utils.logger import BackupLogger
 
@@ -22,7 +23,7 @@ class BackupWorker(QThread):
     finished = pyqtSignal(dict)  # results dict
     
     def __init__(self, source_dir: str, dest_dir: str, db_path: Path,
-                 logger: BackupLogger):
+                 logger: BackupLogger, dedupe_enabled: bool = True):
         """
         Initialize backup worker.
         
@@ -39,6 +40,7 @@ class BackupWorker(QThread):
         self.db_manager: Optional[DBManager] = None
         self.logger = logger
         self.is_cancelled = False
+        self.dedupe_enabled = dedupe_enabled
     
     def cancel(self):
         """Cancel the backup operation."""
@@ -67,10 +69,48 @@ class BackupWorker(QThread):
             
             self.log_message.emit(f"Found {len(file_list)} files to analyze")
             
+            # Scan destination for duplicates if enabled
+            if self.dedupe_enabled:
+                try:
+                    def dest_progress_cb(current, total, message):
+                        self.log_message.emit(message)
+                        self.progress_update.emit(current, total)
+                    
+                    dest_scanner = DestinationScanner(self.db_manager, self.logger, dest_progress_cb)
+                    # Scan entire drive for thorough duplicate detection
+                    scan_results = dest_scanner.scan_destination(
+                        self.dest_dir, 
+                        force_rescan=False,
+                        scan_entire_drive=True  # Scan entire drive, not just the folder
+                    )
+                    
+                    if scan_results.get('cached'):
+                        self.log_message.emit(
+                            f"Using cached destination scan ({scan_results['files_found']} files indexed)"
+                        )
+                    else:
+                        self.log_message.emit(
+                            f"Destination scan complete: {scan_results['hashes_indexed']} unique hashes indexed"
+                        )
+                except Exception as scan_error:
+                    self.log_message.emit(f"Warning: Destination scan failed: {str(scan_error)}")
+                    self.log_message.emit("Continuing without destination deduplication...")
+            
+            if self.is_cancelled:
+                if self.db_manager:
+                    self.db_manager.close()
+                return
+            
             # Copy files
             self.log_message.emit("Starting backup...")
             copier = FileCopier(self.db_manager, self.logger, progress_callback=progress_callback)
-            results = copier.copy_files(file_list, self.source_dir, self.dest_dir, dry_run=False)
+            results = copier.copy_files(
+                file_list,
+                self.source_dir,
+                self.dest_dir,
+                dry_run=False,
+                check_destination_duplicates=self.dedupe_enabled
+            )
             
             if self.is_cancelled:
                 if self.db_manager:
@@ -83,6 +123,7 @@ class BackupWorker(QThread):
                 session_id,
                 files_copied=results['files_copied'],
                 files_skipped=results['files_skipped'],
+                files_duplicated=results.get('files_duplicated', 0),
                 total_size=results['total_size'],
                 status='completed' if not self.is_cancelled else 'cancelled'
             )
@@ -169,6 +210,14 @@ class MainWindow(QMainWindow):
         button_layout.addStretch()
         main_layout.addLayout(button_layout)
         
+        # Options layout
+        options_layout = QHBoxLayout()
+        self.dedupe_checkbox = QCheckBox("Skip files already on destination (dedupe)")
+        self.dedupe_checkbox.setChecked(True)
+        options_layout.addWidget(self.dedupe_checkbox)
+        options_layout.addStretch()
+        main_layout.addLayout(options_layout)
+        
         # Progress bar
         self.progress_bar = QProgressBar()
         self.progress_bar.setMinimum(0)
@@ -211,7 +260,9 @@ class MainWindow(QMainWindow):
         """Update UI state based on current selections."""
         has_source = bool(self.source_dir)
         has_dest = bool(self.dest_dir)
-        self.start_backup_btn.setEnabled(has_source and has_dest and self.backup_worker is None)
+        ready = has_source and has_dest and self.backup_worker is None
+        self.start_backup_btn.setEnabled(ready)
+        self.dedupe_checkbox.setEnabled(self.backup_worker is None)
     
     def start_backup(self):
         """Start backup operation."""
@@ -241,12 +292,15 @@ class MainWindow(QMainWindow):
         self.cancel_backup_btn.setEnabled(True)
         self.source_browse_btn.setEnabled(False)
         self.dest_browse_btn.setEnabled(False)
+        self.dedupe_checkbox.setEnabled(False)
         self.status_label.setText("Backup in progress...")
         
         # Start backup worker thread
         # Pass DB path instead of DBManager instance to avoid threading issues
+        dedupe_enabled = self.dedupe_checkbox.isChecked()
         self.backup_worker = BackupWorker(self.source_dir, self.dest_dir,
-                                         self.db_manager.db_path, self.logger)
+                                         self.db_manager.db_path, self.logger,
+                                         dedupe_enabled=dedupe_enabled)
         self.backup_worker.progress_update.connect(self.update_progress)
         self.backup_worker.log_message.connect(self.append_log)
         self.backup_worker.finished.connect(self.backup_finished)
@@ -290,6 +344,7 @@ class MainWindow(QMainWindow):
         self.cancel_backup_btn.setEnabled(False)
         self.source_browse_btn.setEnabled(True)
         self.dest_browse_btn.setEnabled(True)
+        self.dedupe_checkbox.setEnabled(True)
         
         if 'error' in results:
             self.status_label.setText(f"Backup failed: {results['error']}")
@@ -297,26 +352,35 @@ class MainWindow(QMainWindow):
         else:
             files_copied = results.get('files_copied', 0)
             files_skipped = results.get('files_skipped', 0)
+            files_duplicated = results.get('files_duplicated', 0)
             total_size = results.get('total_size', 0)
-            size_mb = total_size / (1024 * 1024)
+            size_mb = total_size / (1024 * 1024) if total_size > 0 else 0
             
-            self.status_label.setText(
-                f"Backup complete! Copied: {files_copied}, Skipped: {files_skipped}, "
-                f"Size: {size_mb:.2f} MB"
+            status_text = f"Backup complete! Copied: {files_copied}, Skipped: {files_skipped}"
+            if files_duplicated > 0:
+                status_text += f", Duplicates: {files_duplicated}"
+            status_text += f", Size: {size_mb:.2f} MB"
+            self.status_label.setText(status_text)
+            
+            log_text = (
+                f"Backup complete: {files_copied} files copied, {files_skipped} skipped"
             )
-            self.logger.info(
-                f"Backup complete: {files_copied} files copied, {files_skipped} skipped, "
-                f"{size_mb:.2f} MB total"
-            )
+            if files_duplicated > 0:
+                log_text += f", {files_duplicated} duplicates found on destination"
+            log_text += f", {size_mb:.2f} MB total"
+            self.logger.info(log_text)
             self.update_log_display()
             
-            QMessageBox.information(
-                self, "Backup Complete",
+            msg_text = (
                 f"Backup completed successfully!\n\n"
                 f"Files copied: {files_copied}\n"
-                f"Files skipped: {files_skipped}\n"
-                f"Total size: {size_mb:.2f} MB"
+                f"Files skipped (unchanged): {files_skipped}\n"
             )
+            if files_duplicated > 0:
+                msg_text += f"Duplicates found on destination: {files_duplicated}\n"
+            msg_text += f"Total size: {size_mb:.2f} MB"
+            
+            QMessageBox.information(self, "Backup Complete", msg_text)
         
         self.progress_bar.setValue(100)
         self.backup_worker = None

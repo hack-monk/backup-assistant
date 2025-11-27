@@ -6,6 +6,7 @@ A cross-platform GUI-based Backup Assistant that helps users automatically copy 
 
 - **Intelligent Deduplication**: Uses SHA256 hashing to detect file changes
 - **Incremental Backups**: Only copies new or modified files
+- **Destination Duplicate Detection**: Optionally scans the destination drive and skips files that already exist there
 - **Metadata Tracking**: SQLite database tracks file history and modification times
 - **User-Friendly GUI**: PyQt5-based interface with progress tracking
 - **Session Logging**: Detailed logs of all backup operations
@@ -39,13 +40,19 @@ pip install -r requirements.txt
 From the project root directory:
 
 ```bash
-python -m backup_assistant.app
+python app.py
+```
+
+Or use the launcher script:
+
+```bash
+./launch_gui.sh
 ```
 
 Or if installed as a package:
 
 ```bash
-python -m backup_assistant
+backup-assistant
 ```
 
 ### Using the GUI
@@ -53,20 +60,22 @@ python -m backup_assistant
 1. **Select Source Folder**: Click "Browse..." next to "Source Folder" and select the directory you want to backup
 2. **Select Destination Folder**: Click "Browse..." next to "Destination Folder" and select where you want to store the backup (e.g., external hard disk)
 3. **Start Backup**: Click "Start Backup" to begin the backup process
-4. **Monitor Progress**: Watch the progress bar and log window for real-time updates
-5. **Review Results**: After completion, review the summary showing files copied and skipped
+4. **(Optional) Deduplication**: Leave the "Skip files already on destination" checkbox enabled to scan the external drive before copying
+5. **Monitor Progress**: Watch the progress bar and log window for real-time updates
+6. **Review Results**: After completion, review the summary showing copied, skipped, and duplicate counts
 
 ### How It Works
 
 1. **Scanning**: The application scans the source folder and calculates SHA256 hashes for all files
 2. **Comparison**: Each file is compared against the database to check if it's new or modified
-3. **Copying**: Only new or modified files are copied to the destination
-4. **Tracking**: File metadata (hash, modification time, size) is stored in the database for future comparisons
+3. **Destination Dedup (optional)**: If enabled, the destination drive is scanned and duplicate hashes are skipped
+4. **Copying**: Only new or modified (and non-duplicate) files are copied to the destination
+5. **Tracking**: File metadata (hash, modification time, size) is stored in the database for future comparisons
 
 ## Project Structure
 
 ```
-backup_assistant/
+.
 ├── app.py                      # Main entry point
 ├── backup_engine/
 │   ├── scanner.py             # File traversal and hashing
@@ -82,10 +91,13 @@ backup_assistant/
 │   └── config.py              # Configuration settings
 ├── data/
 │   └── backup_metadata.db     # SQLite database file
-└── tests/
-    ├── test_hashing.py
-    ├── test_db_manager.py
-    └── test_backup_logic.py
+├── tests/
+│   ├── test_hashing.py
+│   ├── test_db_manager.py
+│   └── test_backup_logic.py
+├── requirements.txt           # Python dependencies
+├── setup.py                   # Package setup
+└── README.md                  # This file
 ```
 
 ## Configuration

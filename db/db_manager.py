@@ -65,14 +65,47 @@ class DBManager:
                 dest_path TEXT NOT NULL,
                 files_copied INTEGER DEFAULT 0,
                 files_skipped INTEGER DEFAULT 0,
+                files_duplicated INTEGER DEFAULT 0,
                 total_size INTEGER DEFAULT 0,
                 status TEXT DEFAULT 'completed'
             )
         """)
         
-        # Create index on file_path for faster lookups
+        # Destination files table - tracks files by hash on destination drives
+        # This enables deduplication across different source folders
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS destination_files (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                dest_root TEXT NOT NULL,
+                file_hash TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                file_size INTEGER NOT NULL,
+                last_seen REAL NOT NULL,
+                created_at REAL NOT NULL,
+                UNIQUE(dest_root, file_hash, file_path)
+            )
+        """)
+        
+        # Destination scan history - tracks when destinations were last scanned
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS destination_scans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                dest_root TEXT NOT NULL UNIQUE,
+                last_scan_time REAL NOT NULL,
+                files_count INTEGER DEFAULT 0,
+                scan_duration REAL DEFAULT 0
+            )
+        """)
+        
+        # Create indexes for faster lookups
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_file_path ON file_metadata(file_path)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_dest_hash ON destination_files(file_hash)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_dest_root ON destination_files(dest_root)
         """)
         
         conn.commit()
@@ -181,8 +214,8 @@ class DBManager:
         return cursor.lastrowid
     
     def update_backup_session(self, session_id: int, files_copied: int = 0,
-                             files_skipped: int = 0, total_size: int = 0,
-                             status: str = 'completed'):
+                             files_skipped: int = 0, files_duplicated: int = 0,
+                             total_size: int = 0, status: str = 'completed'):
         """Update backup session with results."""
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -191,11 +224,157 @@ class DBManager:
         cursor.execute("""
             UPDATE backup_sessions
             SET session_end = ?, files_copied = ?, files_skipped = ?,
-                total_size = ?, status = ?
+                files_duplicated = ?, total_size = ?, status = ?
             WHERE id = ?
-        """, (now, files_copied, files_skipped, total_size, status, session_id))
+        """, (now, files_copied, files_skipped, files_duplicated, total_size, status, session_id))
         
         conn.commit()
+    
+    def upsert_destination_file(self, dest_root: str, file_hash: str, 
+                               file_path: str, file_size: int):
+        """
+        Record a file that exists on the destination drive.
+        
+        Args:
+            dest_root: Root path of destination drive/folder
+            file_hash: SHA256 hash of the file
+            file_path: Relative or absolute path to file on destination
+            file_size: File size in bytes
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        now = datetime.now().timestamp()
+        
+        cursor.execute("""
+            INSERT INTO destination_files 
+            (dest_root, file_hash, file_path, file_size, last_seen, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(dest_root, file_hash, file_path) DO UPDATE SET
+                last_seen = excluded.last_seen,
+                file_size = excluded.file_size
+        """, (dest_root, file_hash, file_path, file_size, now, now))
+        
+        conn.commit()
+    
+    def get_destination_hash_exists(self, dest_root: str, file_hash: str) -> bool:
+        """
+        Check if a file with this hash already exists on the destination.
+        
+        Args:
+            dest_root: Root path of destination drive/folder
+            file_hash: SHA256 hash to check
+        
+        Returns:
+            True if a file with this hash exists on destination
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT COUNT(*) as count
+            FROM destination_files
+            WHERE dest_root = ? AND file_hash = ?
+        """, (dest_root, file_hash))
+        
+        row = cursor.fetchone()
+        return row['count'] > 0 if row else False
+    
+    def get_destination_file_by_hash(self, dest_root: str, file_hash: str) -> Optional[Dict]:
+        """
+        Get destination file info by hash.
+        
+        Args:
+            dest_root: Root path of destination drive/folder
+            file_hash: SHA256 hash to look up
+        
+        Returns:
+            Dict with file info or None if not found
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT file_path, file_size, last_seen
+            FROM destination_files
+            WHERE dest_root = ? AND file_hash = ?
+            LIMIT 1
+        """, (dest_root, file_hash))
+        
+        row = cursor.fetchone()
+        if row:
+            return {
+                'file_path': row['file_path'],
+                'file_size': row['file_size'],
+                'last_seen': row['last_seen']
+            }
+        return None
+    
+    def clear_destination_files(self, dest_root: str):
+        """
+        Clear all destination file records for a specific destination root.
+        Use this before a fresh scan.
+        
+        Args:
+            dest_root: Root path of destination drive/folder
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("DELETE FROM destination_files WHERE dest_root = ?", (dest_root,))
+        conn.commit()
+    
+    def update_destination_scan(self, dest_root: str, files_count: int, scan_duration: float):
+        """
+        Record that a destination was scanned.
+        
+        Args:
+            dest_root: Root path of destination drive/folder
+            files_count: Number of files found
+            scan_duration: Time taken to scan in seconds
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        now = datetime.now().timestamp()
+        
+        cursor.execute("""
+            INSERT INTO destination_scans 
+            (dest_root, last_scan_time, files_count, scan_duration)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(dest_root) DO UPDATE SET
+                last_scan_time = excluded.last_scan_time,
+                files_count = excluded.files_count,
+                scan_duration = excluded.scan_duration
+        """, (dest_root, now, files_count, scan_duration))
+        
+        conn.commit()
+    
+    def get_destination_scan_info(self, dest_root: str) -> Optional[Dict]:
+        """
+        Get last scan information for a destination.
+        
+        Args:
+            dest_root: Root path of destination drive/folder
+        
+        Returns:
+            Dict with scan info or None if never scanned
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT last_scan_time, files_count, scan_duration
+            FROM destination_scans
+            WHERE dest_root = ?
+        """, (dest_root,))
+        
+        row = cursor.fetchone()
+        if row:
+            return {
+                'last_scan_time': row['last_scan_time'],
+                'files_count': row['files_count'],
+                'scan_duration': row['scan_duration']
+            }
+        return None
     
     def close(self):
         """Close database connection."""

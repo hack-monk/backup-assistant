@@ -10,6 +10,7 @@ from backup_engine.scanner import FileScanner
 from backup_engine.copier import FileCopier
 from db.db_manager import DBManager
 from utils.logger import BackupLogger
+from utils.hashing import hash_file
 
 
 @pytest.fixture
@@ -196,3 +197,37 @@ def test_copier_actual_copy(temp_dirs, temp_db, logger):
     assert metadata['file_hash'] == 'test_hash'
 
 
+def test_copier_skips_destination_duplicates(temp_dirs, temp_db, logger):
+    """Ensure duplicates already on destination are skipped."""
+    source_dir, dest_dir = temp_dirs
+
+    source_file = Path(source_dir) / "dup.txt"
+    source_file.write_text("duplicate content")
+
+    # Pre-populate destination with identical file
+    dest_file = Path(dest_dir) / "dup.txt"
+    dest_file.write_text("duplicate content")
+
+    file_hash = hash_file(source_file)
+
+    file_list = [{
+        'path': str(source_file),
+        'relative_path': 'dup.txt',
+        'hash': file_hash,
+        'modified_time': source_file.stat().st_mtime,
+        'size': source_file.stat().st_size
+    }]
+
+    copier = FileCopier(temp_db, logger)
+    results = copier.copy_files(
+        file_list,
+        source_dir,
+        dest_dir,
+        dry_run=False,
+        destination_hashes={file_hash}
+    )
+
+    assert results['files_copied'] == 0
+    assert results['duplicates_skipped'] == 1
+    # Destination file should remain unchanged
+    assert dest_file.read_text() == "duplicate content"
